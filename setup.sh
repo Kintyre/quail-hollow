@@ -60,7 +60,6 @@ test_awsCliConfig()
         echo "Unable to locate region in aws config, falling back to default \"${profileRegion}\""
         awsCliBaseCmd="${awsCliBaseCmd} --region=${profileRegion}"
     fi
-
 }
 
 show_options()
@@ -74,9 +73,11 @@ show_options()
 
 set_accountNumber()
 {
-    # add error handler if this command is not successful
-    accountNumber=$(${awsCliBaseCmd} ec2 describe-security-groups --group-names 'Default' \
-        --query 'SecurityGroups[0].OwnerId' --output text)
+    accountNumber="$(${awsCliBaseCmd} ec2 describe-security-groups 
+        --group-names 'Default' \
+        --query 'SecurityGroups[0].OwnerId' \
+        --output text)" \
+        || echo "Unable to find account number" && exit 2
 }
 
 set_accountAlias()
@@ -97,7 +98,9 @@ show_settings()
 config_accountAlias()
 {
     aliasFound="false"
-    for aa in $(${awsCliBaseCmd} iam list-account-aliases --query 'AccountAliases[*]' --output text)
+    for aa in $(${awsCliBaseCmd} iam list-account-aliases \
+        --query 'AccountAliases[*]' \
+        --output text)
     do
         if [ "${aa}" == "${accountAlias}" ] ; then
             aliasFound="true"
@@ -108,16 +111,17 @@ config_accountAlias()
     # name is likely already taken.
     if [ "${aliasFound}" == "false" ] ; then
         echo 'Attempting to create IAM account alias'
-        if ${awsCliBaseCmd} iam create-account-alias --account-alias "${accountAlias}"
-        then
-            echo 'IAM Account alias set'
-        fi
+        ${awsCliBaseCmd} iam create-account-alias \
+            --account-alias "${accountAlias}" \
+            || echo "Unable to set account alias"
     fi
 }
 
 make_bucket()
 {
-    for i in $(${awsCliBaseCmd} s3api list-buckets --query "Buckets[].Name" --output text)
+    for i in $(${awsCliBaseCmd} s3api list-buckets \
+        --query "Buckets[].Name" \
+        --output text)
     do
         if [ "${i}" == "${1}" ] ; then
             bucketExists=1
@@ -134,25 +138,25 @@ make_bucket()
 
 create_vpc()
 {
-    echo "creating VPC....."
-    bucketName=${accountAlias}-cloudformation-templates 
+    echo "creating VPC ..."
+    bucketName="${accountAlias}-cloudformation-templates"
     make_bucket "${bucketName}"
 
     # Copy the VPC template up to the working S3 bucket.  Cloud formation needs it in S3.
     ${awsCliBaseCmd} s3 cp vpc.yaml \
-        "s3://${bucketName}/vpc.template.yaml"
+        "s3://${bucketName}/vpc.template.yaml" \
+        || echo "Unable to copy cloudformation template to s3" && exit 2
 
     #Apply the VPC cloud formation template to the account.
     ${awsCliBaseCmd} cloudformation create-stack \
         --stack-name "vpc-${accountAlias}" \
         --template-url "https://${bucketName}.s3.amazonaws.com/vpc.template.yaml"
-
 }
 
 config_bucketpolicy()
 {
     # Generate policy file from template
-    templateFile="${tempDir}/$1.json"
+    templateFile="${tempDir}/${1}.json"
     #shellcheck disable=SC2002
     cat "$1BucketPolicyTemplate.json" | \
         sed "s/ACCOUNTNUMBER/${accountNumber}/g" | \
@@ -160,9 +164,9 @@ config_bucketpolicy()
         sed "s/DATE/$(date +'%Y%m%d')/" > "${templateFile}"
 
     # Apply policy to bucket
-    echo "Applying bucket policy to $2"
+    echo "Applying bucket policy to ${2}"
     ${awsCliBaseCmd} s3api put-bucket-policy \
-            --bucket "$2" \
+            --bucket "${2}" \
             --policy "file://${templateFile}"
     rm -f "${templateFile}"
 }
@@ -176,7 +180,8 @@ enable_cloudtrail()
     #Does the trail already exist
     trailName=$(${awsCliBaseCmd} cloudtrail get-trail \
         --name "${accountAlias}-cloudtrail" \
-        --query Trail.Name --output text 2> /dev/null)
+        --query Trail.Name \
+        --output text 2> /dev/null)
 
     if [ "${trailName}" == "${accountAlias}-cloudtrail" ] ; then
         echo "Trail ${accountAlias}-cloudtrail already exists and will not be re-created."
@@ -228,7 +233,9 @@ enable_config()
     # Create SNS service for Config Service
     topicFound="false"
     topicName=""
-    for i in $(${awsCliBaseCmd} sns list-topics --query Topics[*].TopicArn --output text)
+    for i in $(${awsCliBaseCmd} sns list-topics \
+        --query Topics[*].TopicArn \
+        --output text)
     do
         searchArn="arn:aws:sns:${region}:${accountNumber}:${accountAlias}-config-topic"
         if [ "${i}" == "${searchArn}" ] ; then
@@ -241,7 +248,8 @@ enable_config()
         echo "SNS Topic ${topicName} was found and will not be re-created."
     else
         echo "Creating SNS Topic"
-        ${awsCliBaseCmd} sns create-topic --name "${accountAlias}-config-topic"
+        ${awsCliBaseCmd} sns create-topic \
+            --name "${accountAlias}-config-topic"
 
         # Set Config Service to deliver config informtion to S3 and SNS under the given IAM role
         # May have to run this again if fails on first attempt
@@ -308,7 +316,7 @@ done
 
 if [ "${optionShowHelp}" == 1 ] ; then
      show_help
-     exit 1
+     exit
 fi
 
 show_options
@@ -326,30 +334,30 @@ if [ "${command}" == "all" ] ; then
     enable_cloudtrail
     create_vpc
     enable_config
-    exit 1
+    exit
 fi
 
-if [ "${command}" == "iamAlias" ] ; then
+if [ "${command}" == "iamalias" ] ; then
     config_accountAlias
-    exit 1
+    exit
 fi
 
 if [ "${command}" == "vpc" ] ; then
     create_vpc
-    exit 1
+    exit
 fi
 
-if [ "${command}" == "CloudTrail" ] ; then
+if [ "${command}" == "cloudtrail" ] ; then
     enable_cloudtrail
-    exit 1
+    exit
 fi
 
-if [ "${command}" == "Config" ] ; then
+if [ "${command}" == "config" ] ; then
     enable_config
-    exit 1
+    exit
 fi
 
-if [ "${command}" == "Billing" ] ; then
+if [ "${command}" == "billing" ] ; then
     create_billingbucket
-    exit 1
+    exit
 fi
