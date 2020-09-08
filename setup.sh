@@ -26,8 +26,17 @@ show_overview()
 
 show_help()
 {
-   echo "Usage ./setup.sh [options]"
-   echo "See readme.md for more information"
+    cat <<EOF
+Usage: ${0} [OPTION]...
+
+  -a, --alias                Account alias.  Must conform to AWS naming rules.
+  -p, --profile              AWS profile name.  AWS_* environment variable also supported.
+  -r, --region               AWS region.
+  -c, --command              Command.  all, iamalias, vpc, cloudtrail, config, billing.
+
+See readme.md for more information
+
+EOF
 }
 
 test_awsCliConfig()
@@ -266,7 +275,7 @@ cleanup()
 # main
 
 # Clean up temp files when script exits, whether by successful completion
-# exit signal or intgerruption.
+# exit signal or interruption.
 trap cleanup EXIT
 
 show_overview
@@ -276,19 +285,19 @@ show_overview
 #        but this does not: "./setup.sh --command=vpc"
 
 # read command line options
-while [ "$1" != "" ]; do
-    case $1 in
+while [ "${1}" != "" ]; do
+    case "${1}" in
         -p | --profile )        shift
-                                profile=$1
+                                profile="${1}"
                                 ;;
         -r | --region )         shift 
-                                region=$1
+                                region="${1}"
                                 ;;
         -a | --alias )          shift
-                                accountAlias=$1
+                                accountAlias="${1}"
                                 ;;
         -c | --command )        shift
-                                command=$1
+                                command=$(echo "${1}" | tr '[:upper:]' '[:lower:]')
                                 ;;
         -h | --help )           optionShowHelp=1
                                 break
