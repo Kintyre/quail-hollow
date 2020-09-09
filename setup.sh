@@ -88,23 +88,142 @@ show_settings()
 config_accountAlias()
 {
     aliasFound="false"
+    aliasExists=false
     for aa in $(${awsCliBaseCmd} iam list-account-aliases --query 'AccountAliases[*]' --output text)
-    do
+    do  
+        # We found at least one alias.  
+        aliasExists=true   
+
+        # Did we find the alias that was passed in?   
         if [ "${aa}" == "${accountAlias}" ] ; then
             aliasFound="true"
         fi
     done
+    
     # As account aliases need to be globally unique, there's no way to know if
     # one is taken other than to attempt to create it.  If there's an error, the
     # name is likely already taken.
-    if [ "${aliasFound}" == "false" ] ; then
-        echo 'Attempting to create IAM account alias'
-        if ${awsCliBaseCmd} iam create-account-alias --account-alias "${accountAlias}"
-        then
-            echo 'IAM Account alias set'
+    # There can only be one alias per account so only try to create one if there isnt one already.
+    if [ ${aliasExists} == false ] ; then
+        if [ "${aliasFound}" == "false" ] ; then            
+            echo 'Attempting to create IAM account alias'
+            if ${awsCliBaseCmd} iam create-account-alias --account-alias "${accountAlias}"
+            then
+                echo 'IAM Account alias set'
+            fi
         fi
+    else
+        echo "An alias already exists for this account and will not be recreated."
     fi
 }
+
+# This function will orchestrate the creation of an admin group and user.
+adminUser_Create()
+{
+    # Scope Constants 
+    ACCOUNT_ADMIN_IAM_GROUPNAME="${accountAlias}_accountAdmins"
+    ACCOUNT_ADMIN_IAM_USERNAME="${accountAlias}_AdminUser"
+    ACCOUNT_ADMIN_IAM_TEMPPASSWORD="${accountAlias}TMPPWD"
+    
+    adminUser_CreateGroup
+    adminUser_CreateUser
+}
+
+# As part of the account setup there will be an option to create an admin user.  This function will
+# create the admin group that this new user will belong to.
+adminUser_CreateGroup()
+{
+    # Make sure the group does not already exist.
+    groupFound="false"     
+    for group in $(${awsCliBaseCmd} iam list-groups --query 'Groups[*].GroupName' --output text)
+    do      
+        # Did we find the group?
+        if [ "${group}" == "${ACCOUNT_ADMIN_IAM_GROUPNAME}" ] ; then
+            groupFound="true"
+        fi
+    done 
+    # Create the new group    
+    if [ ${groupFound} == "false" ] ; then            
+        echo "Creating IAM group ${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+        
+        ${awsCliBaseCmd} iam create-group --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"             
+        
+        # Assign the AWS managed policy to the group.
+        ${awsCliBaseCmd} iam attach-group-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --group-name ${ACCOUNT_ADMIN_IAM_GROUPNAME}
+           
+    else
+    {
+        echo "IAM Group ${ACCOUNT_ADMIN_IAM_GROUPNAME} already exists and will not be re-created"        
+    }
+    fi         
+}
+
+# As part of the account setup there will be an option to create an admin user.  This function will
+# create the admin user and associate it to the admin group.
+adminUser_CreateUser()
+{
+    groupFound="false"   
+    for group in $(${awsCliBaseCmd} iam list-groups --query 'Groups[*].GroupName' --output text)
+    do      
+        # Did we find the group?
+        if [ "${group}" == "${ACCOUNT_ADMIN_IAM_GROUPNAME}" ] ; then
+            groupFound="true"
+        fi
+    done
+
+    #If we found the group then make sure the user doesnt already exist
+    if [ ${groupFound} == "true" ] ; then
+    {
+        #Does the user already exist?
+        userExists="false"
+        for user in $(${awsCliBaseCmd} iam list-users --query 'Users[*].UserName' --output text) 
+        do            
+            if [ "${user}" == "${ACCOUNT_ADMIN_IAM_USERNAME}" ] ; then
+            {                
+                userExists="true"
+            }     
+            fi       
+        done
+
+        if [ ${userExists} == "true" ] ; then
+        {            
+            echo "User ${ACCOUNT_ADMIN_IAM_USERNAME} already exists and will not be re-created"
+        }
+        else
+        {
+            # Create user
+            echo "Creating IAM user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-user --user-name ${ACCOUNT_ADMIN_IAM_USERNAME}  
+
+            # Add user to group
+            echo "Associating user ${ACCOUNT_ADMIN_IAM_USERNAME} to group ${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+            ${awsCliBaseCmd} iam add-user-to-group \
+                --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}" \
+                --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
+
+            # Create secret access key
+            echo "Creating access key for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-access-key --user-name ${ACCOUNT_ADMIN_IAM_USERNAME}
+
+            # Create login profile for the user
+            tempPassword="TestPassword"
+            echo "Creating login profile for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-login-profile \
+                --user-name ${ACCOUNT_ADMIN_IAM_USERNAME} \
+                --password ${ACCOUNT_ADMIN_IAM_TEMPPASSWORD} \
+                --password-reset-required
+
+            echo "User login profile created,  UID = ${ACCOUNT_ADMIN_IAM_USERNAME},  Temp password = ${ACCOUNT_ADMIN_IAM_TEMPPASSWORD}"
+        }
+        fi        
+    } 
+    else
+    {
+        echo "IAM Group ${ACCOUNT_ADMIN_IAM_GROUPNAME} could not be found so no Admin user was created"
+    }
+    fi
+}
+
 
 make_bucket()
 {
@@ -317,6 +436,7 @@ if [ "${command}" == "all" ] ; then
     enable_cloudtrail
     create_vpc
     enable_config
+    adminUser_Create
     exit 1
 fi
 
@@ -342,5 +462,10 @@ fi
 
 if [ "${command}" == "Billing" ] ; then
     create_billingbucket
+    exit 1
+fi
+
+if [ "${command}"  == "AdminUser" ] ; then
+    adminUser_Create   
     exit 1
 fi
