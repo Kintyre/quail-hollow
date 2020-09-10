@@ -26,8 +26,16 @@ show_overview()
 
 show_help()
 {
-   echo "Usage ./setup.sh [options]"
-   echo "See readme.md for more information"
+    cat <<EOF
+Usage: ${0} [OPTION]...
+  -a, --alias                Account alias.  Must conform to AWS naming rules.
+  -p, --profile              AWS profile name.  AWS_* environment variable also supported.
+  -r, --region               AWS region.
+  -c, --command              Command.  One of [ all, iamAlias, vpc, CloudTrail, Config, Billing, AdminUser ]
+  -h, --help                 This message.
+
+See readme.md for more information
+EOF
 }
 
 test_awsCliConfig()
