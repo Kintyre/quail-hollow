@@ -157,9 +157,7 @@ adminUser_CreateGroup()
         ${awsCliBaseCmd} iam attach-group-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"
 
     else
-    {
         echo "IAM Group ${ACCOUNT_ADMIN_IAM_GROUPNAME} already exists and will not be re-created"
-    }
     fi
 }
 
