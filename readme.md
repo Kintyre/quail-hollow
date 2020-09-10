@@ -115,6 +115,10 @@ hello@kintyre.co
 
 <https://nvie.com/posts/a-successful-git-branching-model/>
 
+### Style guide
+
+<https://google.github.io/styleguide/shellguide.html>
+
 ### Testing
 
 To help with testing, consider: https://dev.to/michrodz/cloud-reset-reset-a-cloud-aws-gcp-azure-account-to-default-deleting-all-unneded-resources-updated-ggd, https://github.com/rebuy-de/aws-nuke
