@@ -107,8 +107,8 @@ hello@kintyre.co
 
 (888)636-0010
 
-> 2817 Kennedy Road  
-> Wilmington, DE 19810  
+> 2817 Kennedy Road
+> Wilmington, DE 19810
 > United States of America
 
 ### Branching Strategy
