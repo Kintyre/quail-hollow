@@ -149,7 +149,7 @@ adminUser_CreateGroup()
         ${awsCliBaseCmd} iam create-group --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"
 
         # Assign the AWS managed policy to the group.
-        ${awsCliBaseCmd} iam attach-group-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --group-name ${ACCOUNT_ADMIN_IAM_GROUPNAME}
+        ${awsCliBaseCmd} iam attach-group-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"
 
     else
     {
@@ -193,7 +193,7 @@ adminUser_CreateUser()
         {
             # Create user
             echo "Creating IAM user ${ACCOUNT_ADMIN_IAM_USERNAME}"
-            ${awsCliBaseCmd} iam create-user --user-name ${ACCOUNT_ADMIN_IAM_USERNAME}
+            ${awsCliBaseCmd} iam create-user --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
 
             # Add user to group
             echo "Associating user ${ACCOUNT_ADMIN_IAM_USERNAME} to group ${ACCOUNT_ADMIN_IAM_GROUPNAME}"
@@ -203,14 +203,14 @@ adminUser_CreateUser()
 
             # Create secret access key
             echo "Creating access key for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
-            ${awsCliBaseCmd} iam create-access-key --user-name ${ACCOUNT_ADMIN_IAM_USERNAME}
+            ${awsCliBaseCmd} iam create-access-key --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
 
             # Create login profile for the user
             tempPassword="TestPassword"
             echo "Creating login profile for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
             ${awsCliBaseCmd} iam create-login-profile \
-                --user-name ${ACCOUNT_ADMIN_IAM_USERNAME} \
-                --password ${ACCOUNT_ADMIN_IAM_TEMPPASSWORD} \
+                --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}" \
+                --password "${ACCOUNT_ADMIN_IAM_TEMPPASSWORD}" \
                 --password-reset-required
 
             echo "User login profile created,  UID = ${ACCOUNT_ADMIN_IAM_USERNAME},  Temp password = ${ACCOUNT_ADMIN_IAM_TEMPPASSWORD}"
