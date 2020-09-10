@@ -206,7 +206,6 @@ adminUser_CreateUser()
             ${awsCliBaseCmd} iam create-access-key --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
 
             # Create login profile for the user
-            tempPassword="TestPassword"
             echo "Creating login profile for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
             ${awsCliBaseCmd} iam create-login-profile \
                 --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}" \
