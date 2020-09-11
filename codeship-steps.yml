@@ -1,0 +1,9 @@
+- type: parallel
+  name: parallel-steps
+  steps:
+    - service: pre-commit
+      name: Show environment
+      command: printenv
+    - service: pre-commit
+      name: Run pre-commit
+      command: pre-commit run --all-files

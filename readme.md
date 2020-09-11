@@ -1,3 +1,5 @@
+[![Build Status](https://app.codeship.com/projects/0b7198d0-d64c-0138-2bc6-022c34f98bcc/status?branch=development)](https://app.codeship.com/projects/0b7198d0-d64c-0138-2bc6-022c34f98bcc/status?branch=development)
+
 # Overview
 
 Script for setting up many AWS account best practices as authored by Kintyre.
