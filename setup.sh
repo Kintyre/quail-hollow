@@ -26,28 +26,34 @@ show_overview()
 
 show_help()
 {
-   echo "Usage ./setup.sh [options]"
-   echo "See readme.md for more information"
+    cat <<EOF
+Usage: ${0} [OPTION]...
+  -a, --alias                Account alias.  Must conform to AWS naming rules.
+  -p, --profile              AWS profile name.  AWS_* environment variable also supported.
+  -r, --region               AWS region.
+  -c, --command              Command.  One of [ all, iamAlias, vpc, CloudTrail, Config, Billing, AdminUser ]
+  -h, --help                 This message.
+
+See readme.md for more information
+EOF
 }
 
 test_awsCliConfig()
 {
     awsCliBaseCmd="aws"
-    if [ "${profile}" != "" ] ; then
+    if [ "${profile}" != "" ]; then
         awsCliBaseCmd="${awsCliBaseCmd} --profile=${profile}"
     fi
 
     echo "Checking AWS CLI credentials"
-    if ! ${awsCliBaseCmd} sts get-caller-identity > /dev/null 2>&1
-    then
+    if ! ${awsCliBaseCmd} sts get-caller-identity > /dev/null 2>&1; then
         echo "Unable to locate credentials. You can configure credentials by running \"aws configure\""
         exit 1
     fi
 
     profileRegion="us-east-1"
     echo "Checking region config setting"
-    if ${awsCliBaseCmd} configure list | grep "^ *region" | grep -q "not set"
-    then
+    if ${awsCliBaseCmd} configure list | grep "^ *region" | grep -q "not set"; then
         echo "Unable to locate region in aws config, falling back to default \"${profileRegion}\""
         awsCliBaseCmd="${awsCliBaseCmd} --region=${profileRegion}"
     fi
@@ -72,7 +78,7 @@ set_accountNumber()
 
 set_accountAlias()
 {
-    if [ "${accountAlias}" == "" ] ; then
+    if [ "${accountAlias}" == "" ]; then
         accountAlias=$accountNumber
     fi
 }
@@ -88,34 +94,139 @@ show_settings()
 config_accountAlias()
 {
     aliasFound="false"
+    aliasExists="false"
     for aa in $(${awsCliBaseCmd} iam list-account-aliases --query 'AccountAliases[*]' --output text)
     do
-        if [ "${aa}" == "${accountAlias}" ] ; then
+        # We found at least one alias.
+        aliasExists="true"
+
+        # Did we find the alias that was passed in?
+        if [ "${aa}" == "${accountAlias}" ]; then
             aliasFound="true"
         fi
     done
+
     # As account aliases need to be globally unique, there's no way to know if
     # one is taken other than to attempt to create it.  If there's an error, the
     # name is likely already taken.
-    if [ "${aliasFound}" == "false" ] ; then
-        echo 'Attempting to create IAM account alias'
-        if ${awsCliBaseCmd} iam create-account-alias --account-alias "${accountAlias}"
-        then
-            echo 'IAM Account alias set'
+    # There can only be one alias per account so only try to create one if there isnt one already.
+    if [ "${aliasExists}" == "false" ]; then
+        if [ "${aliasFound}" == "false" ]; then
+            echo 'Attempting to create IAM account alias'
+            if ${awsCliBaseCmd} iam create-account-alias --account-alias "${accountAlias}"; then
+                echo 'IAM Account alias set'
+            fi
         fi
+    else
+        echo "An alias already exists for this account and will not be recreated."
     fi
 }
+
+# This function will orchestrate the creation of an admin group and user.
+adminUser_Create()
+{
+    # Scope Constants
+    ACCOUNT_ADMIN_IAM_GROUPNAME="${accountAlias}_accountAdmins"
+    ACCOUNT_ADMIN_IAM_USERNAME="${accountAlias}_AdminUser"
+    ACCOUNT_ADMIN_IAM_TEMPPASSWORD="${accountAlias}TMPPWD"
+
+    adminUser_CreateGroup
+    adminUser_CreateUser
+}
+
+# As part of the account setup there will be an option to create an admin user.  This function will
+# create the admin group that this new user will belong to.
+adminUser_CreateGroup()
+{
+    # Make sure the group does not already exist.
+    groupFound="false"
+    for group in $(${awsCliBaseCmd} iam list-groups --query 'Groups[*].GroupName' --output text)
+    do
+        # Did we find the group?
+        if [ "${group}" == "${ACCOUNT_ADMIN_IAM_GROUPNAME}" ]; then
+            groupFound="true"
+        fi
+    done
+    # Create the new group
+    if [ ${groupFound} == "false" ]; then
+        echo "Creating IAM group ${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+
+        ${awsCliBaseCmd} iam create-group --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+
+        # Assign the AWS managed policy to the group.
+        ${awsCliBaseCmd} iam attach-group-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+
+    else
+        echo "IAM Group ${ACCOUNT_ADMIN_IAM_GROUPNAME} already exists and will not be re-created"
+    fi
+}
+
+# As part of the account setup there will be an option to create an admin user.  This function will
+# create the admin user and associate it to the admin group.
+adminUser_CreateUser()
+{
+    groupFound="false"
+    for group in $(${awsCliBaseCmd} iam list-groups --query 'Groups[*].GroupName' --output text)
+    do
+        # Did we find the group?
+        if [ "${group}" == "${ACCOUNT_ADMIN_IAM_GROUPNAME}" ]; then
+            groupFound="true"
+        fi
+    done
+
+    #If we found the group then make sure the user doesnt already exist
+    if [ ${groupFound} == "true" ]; then
+        #Does the user already exist?
+        userExists="false"
+        for user in $(${awsCliBaseCmd} iam list-users --query 'Users[*].UserName' --output text)
+        do
+            if [ "${user}" == "${ACCOUNT_ADMIN_IAM_USERNAME}" ]; then
+                userExists="true"
+            fi
+        done
+
+        if [ ${userExists} == "true" ]; then
+            echo "User ${ACCOUNT_ADMIN_IAM_USERNAME} already exists and will not be re-created"
+        else
+            # Create user
+            echo "Creating IAM user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-user --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
+
+            # Add user to group
+            echo "Associating user ${ACCOUNT_ADMIN_IAM_USERNAME} to group ${ACCOUNT_ADMIN_IAM_GROUPNAME}"
+            ${awsCliBaseCmd} iam add-user-to-group \
+                --group-name "${ACCOUNT_ADMIN_IAM_GROUPNAME}" \
+                --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
+
+            # Create secret access key
+            echo "Creating access key for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-access-key --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}"
+
+            # Create login profile for the user
+            echo "Creating login profile for user ${ACCOUNT_ADMIN_IAM_USERNAME}"
+            ${awsCliBaseCmd} iam create-login-profile \
+                --user-name "${ACCOUNT_ADMIN_IAM_USERNAME}" \
+                --password "${ACCOUNT_ADMIN_IAM_TEMPPASSWORD}" \
+                --password-reset-required
+
+            echo "User login profile created,  UID = ${ACCOUNT_ADMIN_IAM_USERNAME},  Temp password = ${ACCOUNT_ADMIN_IAM_TEMPPASSWORD}"
+        fi
+    else
+        echo "IAM Group ${ACCOUNT_ADMIN_IAM_GROUPNAME} could not be found so no Admin user was created"
+    fi
+}
+
 
 make_bucket()
 {
     for i in $(${awsCliBaseCmd} s3api list-buckets --query "Buckets[].Name" --output text)
     do
-        if [ "${i}" == "${1}" ] ; then
+        if [ "${i}" == "${1}" ]; then
             bucketExists=1
             break
         fi
     done
-    if [ "${bucketExists}" == 1 ] ; then
+    if [ "${bucketExists}" == 1 ]; then
         echo "S3 bucket ${1} already exists."
     else
         echo "Attempting to create S3 bucket ${1}"
@@ -126,7 +237,7 @@ make_bucket()
 create_vpc()
 {
     echo "creating VPC....."
-    bucketName=${accountAlias}-cloudformation-templates 
+    bucketName=${accountAlias}-cloudformation-templates
     make_bucket "${bucketName}"
 
     # Copy the VPC template up to the working S3 bucket.  Cloud formation needs it in S3.
@@ -161,7 +272,7 @@ config_bucketpolicy()
 enable_cloudtrail()
 {
     echo "Enabling CloudTrail....."
-    bucketName=${accountAlias}-cloudtrail 
+    bucketName=${accountAlias}-cloudtrail
     make_bucket "${bucketName}"
     config_bucketpolicy "cloudtrail" "${bucketName}"
     #Does the trail already exist
@@ -169,7 +280,7 @@ enable_cloudtrail()
         --name "${accountAlias}-cloudtrail" \
         --query Trail.Name --output text 2> /dev/null)
 
-    if [ "${trailName}" == "${accountAlias}-cloudtrail" ] ; then
+    if [ "${trailName}" == "${accountAlias}-cloudtrail" ]; then
         echo "Trail ${accountAlias}-cloudtrail already exists and will not be re-created."
     else
         echo "Creating trail ${accountAlias}-cloudtrail"
@@ -186,7 +297,7 @@ enable_cloudtrail()
 enable_config()
 {
     echo "Enabling Config....."
-    bucketName=${accountAlias}-config 
+    bucketName=${accountAlias}-config
     make_bucket "${bucketName}"
     config_bucketpolicy "config" "${bucketName}"
 
@@ -196,7 +307,7 @@ enable_config()
         --query Role.RoleName \
         --output text 2> /dev/null)
 
-   if [ "${existingRoleName}" == "${accountAlias}-config-role" ] ; then
+    if [ "${existingRoleName}" == "${accountAlias}-config-role" ]; then
         echo "Role ${accountAlias}-config-role already exists and will not be created again."
     else
         echo "Creating config role ${accountAlias}-config-role."
@@ -222,13 +333,13 @@ enable_config()
     for i in $(${awsCliBaseCmd} sns list-topics --query Topics[*].TopicArn --output text)
     do
         searchArn="arn:aws:sns:${region}:${accountNumber}:${accountAlias}-config-topic"
-        if [ "${i}" == "${searchArn}" ] ; then
+        if [ "${i}" == "${searchArn}" ]; then
             topicFound="true"
             topicName="${i}"
         fi
     done
 
-    if [ ${topicFound} == "true" ] ; then
+    if [ ${topicFound} == "true" ]; then
         echo "SNS Topic ${topicName} was found and will not be re-created."
     else
         echo "Creating SNS Topic"
@@ -250,15 +361,14 @@ enable_config()
 
 create_billingbucket()
 {
-    bucketName=${accountAlias}-billing 
+    bucketName=${accountAlias}-billing
     make_bucket "${bucketName}"
     config_bucketpolicy "billing" "${bucketName}"
 }
 
 cleanup()
 {
-    if [ -n "${tempDir}" ] && [ -d "${tempDir}" ]
-    then
+    if [ -n "${tempDir}" ] && [ -d "${tempDir}" ]; then
         rm -rf "${tempDir}"
     fi
 }
@@ -281,7 +391,7 @@ while [ "$1" != "" ]; do
         -p | --profile )        shift
                                 profile=$1
                                 ;;
-        -r | --region )         shift 
+        -r | --region )         shift
                                 region=$1
                                 ;;
         -a | --alias )          shift
@@ -297,7 +407,7 @@ while [ "$1" != "" ]; do
     shift
 done
 
-if [ "${optionShowHelp}" == 1 ] ; then
+if [ "${optionShowHelp}" == 1 ]; then
      show_help
      exit 1
 fi
@@ -312,35 +422,41 @@ set_accountAlias
 
 show_settings
 
-if [ "${command}" == "all" ] ; then
+if [ "${command}" == "all" ]; then
     config_accountAlias
     enable_cloudtrail
     create_vpc
     enable_config
+    adminUser_Create
     exit 1
 fi
 
-if [ "${command}" == "iamAlias" ] ; then
+if [ "${command}" == "iamAlias" ]; then
     config_accountAlias
     exit 1
 fi
 
-if [ "${command}" == "vpc" ] ; then
+if [ "${command}" == "vpc" ]; then
     create_vpc
     exit 1
 fi
 
-if [ "${command}" == "CloudTrail" ] ; then
+if [ "${command}" == "CloudTrail" ]; then
     enable_cloudtrail
     exit 1
 fi
 
-if [ "${command}" == "Config" ] ; then
+if [ "${command}" == "Config" ]; then
     enable_config
     exit 1
 fi
 
-if [ "${command}" == "Billing" ] ; then
+if [ "${command}" == "Billing" ]; then
     create_billingbucket
+    exit 1
+fi
+
+if [ "${command}"  == "AdminUser" ]; then
+    adminUser_Create
     exit 1
 fi
