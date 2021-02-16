@@ -4,6 +4,8 @@
 
 Script for setting up many AWS account best practices as authored by Kintyre.
 
+## **NOTE: review <https://aws.amazon.com/quickstart/architecture/superwerker/> before further development on this project**
+
 ## Target Audience
 
 Any IT professional with basic Linux CLI experience with administrative access to an AWS account.
